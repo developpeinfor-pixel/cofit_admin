@@ -20,32 +20,31 @@ class SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    final isCompact = MediaQuery.of(context).size.width < 700;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: TextStyle(
-                  color: color,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 22,
-                ),
-              ),
-              Text(subtitle, style: const TextStyle(color: Color(0xFF3F7657))),
-            ],
+        Text(
+          title,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.w800,
+            fontSize: 22,
           ),
         ),
-        FilledButton.icon(
-          onPressed: onPressed,
-          style: FilledButton.styleFrom(
-            backgroundColor: color,
-            foregroundColor: Colors.white,
+        Text(subtitle, style: const TextStyle(color: Color(0xFF3F7657))),
+        const SizedBox(height: 8),
+        Align(
+          alignment: isCompact ? Alignment.centerLeft : Alignment.centerRight,
+          child: FilledButton.icon(
+            onPressed: onPressed,
+            style: FilledButton.styleFrom(
+              backgroundColor: color,
+              foregroundColor: Colors.white,
+            ),
+            icon: Icon(icon),
+            label: Text(buttonLabel),
           ),
-          icon: Icon(icon),
-          label: Text(buttonLabel),
         ),
       ],
     );

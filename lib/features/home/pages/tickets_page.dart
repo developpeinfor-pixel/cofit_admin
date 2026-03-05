@@ -37,35 +37,72 @@ class TicketsPage extends StatelessWidget {
           color: green,
         ),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: TextField(
-                controller: qrController,
-                decoration: InputDecoration(
-                  labelText: 'QR code ticket (scanne ou colle la valeur)',
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 700;
+            if (compact) {
+              return Column(
+                children: [
+                  TextField(
+                    controller: qrController,
+                    decoration: InputDecoration(
+                      labelText: 'QR code ticket (scanne ou colle la valeur)',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
                   ),
-                  filled: true,
-                  fillColor: Colors.white,
+                  const SizedBox(height: 8),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilledButton.icon(
+                      onPressed: saving ? null : onValidate,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: green,
+                        foregroundColor: Colors.white,
+                      ),
+                      icon: const Icon(Icons.qr_code_scanner),
+                      label: const Text('Valider'),
+                    ),
+                  ),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: qrController,
+                    decoration: InputDecoration(
+                      labelText: 'QR code ticket (scanne ou colle la valeur)',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Colors.white,
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            FilledButton.icon(
-              onPressed: saving ? null : onValidate,
-              style: FilledButton.styleFrom(
-                backgroundColor: green,
-                foregroundColor: Colors.white,
-              ),
-              icon: const Icon(Icons.qr_code_scanner),
-              label: const Text('Valider'),
-            ),
-          ],
+                const SizedBox(width: 8),
+                FilledButton.icon(
+                  onPressed: saving ? null : onValidate,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: green,
+                    foregroundColor: Colors.white,
+                  ),
+                  icon: const Icon(Icons.qr_code_scanner),
+                  label: const Text('Valider'),
+                ),
+              ],
+            );
+          },
         ),
         const SizedBox(height: 12),
-        ...tickets.take(40).map(
+        ...tickets
+            .take(40)
+            .map(
               (e) => CardItem(
                 title:
                     '${s(e['ticket_number'], 'TICKET')} | ${s(e['status']).toUpperCase()}',

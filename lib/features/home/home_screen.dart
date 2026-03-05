@@ -135,6 +135,11 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       ).hasMatch(value.trim());
   bool validMp4(String value) =>
       RegExp(r'\.mp4(\?.*)?$', caseSensitive: false).hasMatch(value.trim());
+  double dialogWidth(double preferred) {
+    final max = MediaQuery.of(context).size.width * 0.92;
+    return max < preferred ? max : preferred;
+  }
+
   bool hasAtLeastTwoColors(String value) {
     final colors = value
         .split(RegExp(r'[;,]'))
@@ -389,7 +394,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       builder: (_) => AlertDialog(
         title: Text(title),
         content: SizedBox(
-          width: 560,
+          width: dialogWidth(560),
           child: SingleChildScrollView(
             child: Column(
               children: List.generate(
@@ -520,7 +525,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       builder: (_) => AlertDialog(
         title: const Text('Ajouter competition'),
         content: SizedBox(
-          width: 580,
+          width: dialogWidth(580),
           child: SingleChildScrollView(
             child: Column(
               children: [
@@ -654,7 +659,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       builder: (_) => AlertDialog(
         title: Text(isEdit ? 'Modifier equipe' : 'Ajouter equipe'),
         content: SizedBox(
-          width: 680,
+          width: dialogWidth(680),
           child: SingleChildScrollView(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -967,7 +972,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       builder: (_) => AlertDialog(
         title: const Text('Nouveau compte admin'),
         content: SizedBox(
-          width: 580,
+          width: dialogWidth(580),
           child: SingleChildScrollView(
             child: Column(
               children: [

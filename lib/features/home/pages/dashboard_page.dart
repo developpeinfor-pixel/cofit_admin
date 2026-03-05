@@ -92,7 +92,9 @@ class DashboardPage extends StatelessWidget {
       builder: (_) => AlertDialog(
         title: const Text('Equipes participantes'),
         content: SizedBox(
-          width: 520,
+          width: MediaQuery.of(context).size.width * 0.92 > 520
+              ? 520
+              : MediaQuery.of(context).size.width * 0.92,
           child: teamRows.isEmpty
               ? const Text('Aucune equipe liee a la competition en cours.')
               : Column(
@@ -120,17 +122,20 @@ class DashboardPage extends StatelessWidget {
                       runSpacing: 8,
                       children: [
                         OutlinedButton.icon(
-                          onPressed: () => exportTeams(context, teamRows, 'csv'),
+                          onPressed: () =>
+                              exportTeams(context, teamRows, 'csv'),
                           icon: const Icon(Icons.table_chart),
                           label: const Text('Exporter CSV'),
                         ),
                         OutlinedButton.icon(
-                          onPressed: () => exportTeams(context, teamRows, 'json'),
+                          onPressed: () =>
+                              exportTeams(context, teamRows, 'json'),
                           icon: const Icon(Icons.data_object),
                           label: const Text('Exporter JSON'),
                         ),
                         OutlinedButton.icon(
-                          onPressed: () => exportTeams(context, teamRows, 'pdf'),
+                          onPressed: () =>
+                              exportTeams(context, teamRows, 'pdf'),
                           icon: const Icon(Icons.picture_as_pdf),
                           label: const Text('Exporter PDF'),
                         ),
@@ -155,9 +160,10 @@ class DashboardPage extends StatelessWidget {
     String value, {
     String? subtitle,
     VoidCallback? onTap,
+    double width = 220,
   }) {
     final card = Container(
-      width: 220,
+      width: width,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -167,10 +173,7 @@ class DashboardPage extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(color: Color(0xFF44745A)),
-          ),
+          Text(title, style: const TextStyle(color: Color(0xFF44745A))),
           Text(
             value,
             style: TextStyle(
@@ -206,7 +209,9 @@ class DashboardPage extends StatelessWidget {
         ? s(currentCompetition['season'])
         : '';
     final teamRows = teams(dashboard['competition_teams']);
-    final canSeePremiumAndTicket = b(dashboard['premium_and_ticket_stats_visible']);
+    final canSeePremiumAndTicket = b(
+      dashboard['premium_and_ticket_stats_visible'],
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -232,46 +237,85 @@ class DashboardPage extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            statCard(context, 'Admins', s(dashboard['admins_count'], '0')),
-            statCard(context, 'Users', s(dashboard['users_count'], '0')),
-            statCard(
-              context,
-              'Competition en cours',
-              competitionName,
-              subtitle: competitionSeason.isEmpty ? null : 'Saison: $competitionSeason',
-            ),
-            statCard(
-              context,
-              'Equipes participantes',
-              s(dashboard['competition_teams_count'], '0'),
-              subtitle: 'Cliquer pour voir/exporter',
-              onTap: () => showTeamsDialog(context, teamRows),
-            ),
-            statCard(
-              context,
-              'Matchs prevus',
-              s(dashboard['competition_matches_planned_count'], '0'),
-            ),
-            statCard(
-              context,
-              'Matchs restants',
-              s(dashboard['competition_matches_remaining_count'], '0'),
-            ),
-            if (canSeePremiumAndTicket) ...[
-              statCard(context, 'Tickets emis/vendus', s(dashboard['tickets_sold'], '0')),
-              statCard(context, 'Abonnements premium', s(dashboard['supporter_cards_sold'], '0')),
-              statCard(context, 'Paiements', s(dashboard['payments_count'], '0')),
-              statCard(
-                context,
-                'Revenus',
-                '${s(dashboard['revenue_total'], '0')} FCFA',
-              ),
-            ],
-          ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final w = constraints.maxWidth;
+            final compact = w < 560;
+            final cardWidth = compact ? w : ((w - 10) / 2).clamp(220, 360);
+            return Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                statCard(
+                  context,
+                  'Admins',
+                  s(dashboard['admins_count'], '0'),
+                  width: cardWidth.toDouble(),
+                ),
+                statCard(
+                  context,
+                  'Users',
+                  s(dashboard['users_count'], '0'),
+                  width: cardWidth.toDouble(),
+                ),
+                statCard(
+                  context,
+                  'Competition en cours',
+                  competitionName,
+                  subtitle: competitionSeason.isEmpty
+                      ? null
+                      : 'Saison: $competitionSeason',
+                  width: cardWidth.toDouble(),
+                ),
+                statCard(
+                  context,
+                  'Equipes participantes',
+                  s(dashboard['competition_teams_count'], '0'),
+                  subtitle: 'Cliquer pour voir/exporter',
+                  onTap: () => showTeamsDialog(context, teamRows),
+                  width: cardWidth.toDouble(),
+                ),
+                statCard(
+                  context,
+                  'Matchs prevus',
+                  s(dashboard['competition_matches_planned_count'], '0'),
+                  width: cardWidth.toDouble(),
+                ),
+                statCard(
+                  context,
+                  'Matchs restants',
+                  s(dashboard['competition_matches_remaining_count'], '0'),
+                  width: cardWidth.toDouble(),
+                ),
+                if (canSeePremiumAndTicket) ...[
+                  statCard(
+                    context,
+                    'Tickets emis/vendus',
+                    s(dashboard['tickets_sold'], '0'),
+                    width: cardWidth.toDouble(),
+                  ),
+                  statCard(
+                    context,
+                    'Abonnements premium',
+                    s(dashboard['supporter_cards_sold'], '0'),
+                    width: cardWidth.toDouble(),
+                  ),
+                  statCard(
+                    context,
+                    'Paiements',
+                    s(dashboard['payments_count'], '0'),
+                    width: cardWidth.toDouble(),
+                  ),
+                  statCard(
+                    context,
+                    'Revenus',
+                    '${s(dashboard['revenue_total'], '0')} FCFA',
+                    width: cardWidth.toDouble(),
+                  ),
+                ],
+              ],
+            );
+          },
         ),
         if (!canSeePremiumAndTicket)
           const Padding(
