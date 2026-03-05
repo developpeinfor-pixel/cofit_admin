@@ -15,6 +15,7 @@ import 'pages/competitions_page.dart';
 import 'pages/dashboard_page.dart';
 import 'pages/admins_page.dart';
 import 'pages/exports_page.dart';
+import 'pages/groups_page.dart';
 import 'pages/matches_page.dart';
 import 'pages/news_page.dart';
 import 'pages/seasons_page.dart';
@@ -52,6 +53,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   List<Map<String, dynamic>> seasons = [];
   List<Map<String, dynamic>> competitions = [];
   List<Map<String, dynamic>> teams = [];
+  List<Map<String, dynamic>> groups = [];
   List<Map<String, dynamic>> matches = [];
   List<Map<String, dynamic>> news = [];
   List<Map<String, dynamic>> videos = [];
@@ -341,6 +343,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         seasons = data.seasons;
         competitions = data.competitions;
         teams = data.teams;
+        groups = data.groups;
         matches = data.matches;
         news = data.news;
         videos = data.videos;
@@ -888,6 +891,118 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 
+  Future<void> addGroup() async {
+    if (competitions.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Aucune competition disponible. Cree une competition d abord.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final name = TextEditingController();
+    final selectedCompetition = ValueNotifier<String>(
+      s(competitions.first['id']),
+    );
+    final phase = ValueNotifier<String>('group_stage');
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Ajouter groupe'),
+        content: SizedBox(
+          width: dialogWidth(560),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ValueListenableBuilder<String>(
+                valueListenable: selectedCompetition,
+                builder: (context, value, child) {
+                  return DropdownButtonFormField<String>(
+                    initialValue: value,
+                    decoration: const InputDecoration(
+                      labelText: 'Competition',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: competitions
+                        .map(
+                          (c) => DropdownMenuItem(
+                            value: s(c['id']),
+                            child: Text('${s(c['name'])} (${s(c['season'])})'),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (next) {
+                      if (next != null) selectedCompetition.value = next;
+                    },
+                  );
+                },
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: name,
+                decoration: const InputDecoration(
+                  labelText: 'Nom du groupe (ex: Groupe A)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 10),
+              ValueListenableBuilder<String>(
+                valueListenable: phase,
+                builder: (context, value, child) {
+                  return DropdownButtonFormField<String>(
+                    initialValue: value,
+                    decoration: const InputDecoration(
+                      labelText: 'Phase',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'group_stage',
+                        child: Text('Phase de poules'),
+                      ),
+                    ],
+                    onChanged: (next) {
+                      if (next != null) phase.value = next;
+                    },
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok == true) {
+      await run(
+        () => api.dio.post(
+          '/admin/groups',
+          data: {
+            'competition_id': selectedCompetition.value,
+            'name': name.text.trim(),
+            'phase': phase.value,
+          },
+        ),
+        'Groupe ajoute',
+      );
+    }
+  }
+
   Future<void> addNews() async {
     final t = TextEditingController();
     final c = TextEditingController();
@@ -1085,10 +1200,10 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
   List<int> visibleTabs() {
     if (role == roleGeneral) {
-      return const [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
+      return const [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
     }
     if (role == roleSenior) {
-      return const [0, 1, 2, 3, 4, 5, 6];
+      return const [0, 1, 2, 3, 4, 5, 6, 7];
     }
     return const [0];
   }
@@ -1166,6 +1281,17 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           saving: saving,
         );
       case 4:
+        return GroupsPage(
+          groups: groups,
+          onAdd: addGroup,
+          onDelete: (e) => run(
+            () => api.dio.delete('/admin/groups/${s(e['id'])}'),
+            'Groupe supprime',
+          ),
+          green: green,
+          saving: saving,
+        );
+      case 5:
         return MatchesPage(
           matches: matches,
           onAdd: addMatch,
@@ -1176,7 +1302,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           green: green,
           saving: saving,
         );
-      case 5:
+      case 6:
         return NewsPage(
           news: news,
           onAdd: addNews,
@@ -1187,7 +1313,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           green: green,
           saving: saving,
         );
-      case 6:
+      case 7:
         return VideosPage(
           videos: videos,
           onAdd: addVideo,
@@ -1198,7 +1324,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           green: green,
           saving: saving,
         );
-      case 7:
+      case 8:
         return TicketsPage(
           tickets: tickets,
           qrController: qrValidateController,
@@ -1208,7 +1334,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           saving: saving,
         );
       default:
-        if (tab == 8) {
+        if (tab == 9) {
           return ExportsPage(
             onExportCsv: () => exportFile('csv'),
             onExportPdf: () => exportFile('pdf'),
@@ -1232,6 +1358,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       'Saisons',
       'Competitions',
       'Equipes',
+      'Groupes',
       'Matchs',
       'Actus',
       'Videos',
@@ -1244,6 +1371,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       Icons.calendar_month,
       Icons.emoji_events,
       Icons.groups,
+      Icons.view_module,
       Icons.sports_soccer,
       Icons.newspaper,
       Icons.movie,

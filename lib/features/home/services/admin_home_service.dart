@@ -6,6 +6,7 @@ class AdminHomeData {
     required this.seasons,
     required this.competitions,
     required this.teams,
+    required this.groups,
     required this.matches,
     required this.news,
     required this.videos,
@@ -19,6 +20,7 @@ class AdminHomeData {
   final List<Map<String, dynamic>> seasons;
   final List<Map<String, dynamic>> competitions;
   final List<Map<String, dynamic>> teams;
+  final List<Map<String, dynamic>> groups;
   final List<Map<String, dynamic>> matches;
   final List<Map<String, dynamic>> news;
   final List<Map<String, dynamic>> videos;
@@ -59,6 +61,7 @@ class AdminHomeService {
       _safeGet('/admin/seasons', <dynamic>[]),
       _dio.get('/app/competitions'),
       _dio.get('/app/teams'),
+      _safeGet('/admin/groups', <dynamic>[]),
       _dio.get('/app/matches'),
       _safeGet('/admin/news', <dynamic>[]),
       _safeGet('/admin/videos', <dynamic>[]),
@@ -67,7 +70,8 @@ class AdminHomeService {
     ]);
 
     final competitions = asList(rs[2].data);
-    final compId = currentStandingsCompetitionId ?? _s(competitions.firstOrNull?['id']);
+    final compId =
+        currentStandingsCompetitionId ?? _s(competitions.firstOrNull?['id']);
     final standings = compId.isEmpty
         ? <Map<String, dynamic>>[]
         : asList((await _dio.get('/app/standings/$compId')).data);
@@ -77,11 +81,12 @@ class AdminHomeService {
       seasons: asList(rs[1].data),
       competitions: competitions,
       teams: asList(rs[3].data),
-      matches: asList(rs[4].data),
-      news: asList(rs[5].data),
-      videos: asList(rs[6].data),
-      tickets: asList(rs[7].data),
-      adminUsers: asList(rs[8].data),
+      groups: asList(rs[4].data),
+      matches: asList(rs[5].data),
+      news: asList(rs[6].data),
+      videos: asList(rs[7].data),
+      tickets: asList(rs[8].data),
+      adminUsers: asList(rs[9].data),
       standings: standings,
       standingsCompetitionId: compId.isEmpty ? null : compId,
     );
