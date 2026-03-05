@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
+import 'package:excel/excel.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -133,6 +135,175 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       ).hasMatch(value.trim());
   bool validMp4(String value) =>
       RegExp(r'\.mp4(\?.*)?$', caseSensitive: false).hasMatch(value.trim());
+  String normalizeHeader(String value) => value
+      .toLowerCase()
+      .replaceAll('é', 'e')
+      .replaceAll('è', 'e')
+      .replaceAll('ê', 'e')
+      .replaceAll('à', 'a')
+      .replaceAll('ù', 'u')
+      .replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+  String playersToLines(dynamic value) {
+    if (value is! List) return '';
+    return value
+        .map((e) {
+          if (e is! Map) return '';
+          final nom = s(e['nom']);
+          final prenoms = s(e['prenoms'], s(e['prenom']));
+          final surnom = s(e['surnom'], s(e['surnom']));
+          final dossard = s(e['dossard'], s(e['dorsal']));
+          return '$nom;$prenoms;$surnom;$dossard';
+        })
+        .where((line) => line.trim().isNotEmpty)
+        .join('\n');
+  }
+
+  String staffToLines(dynamic value) {
+    if (value is! List) return '';
+    return value
+        .map((e) {
+          if (e is! Map) return '';
+          final nom = s(e['nom']);
+          final prenom = s(e['prenom'], s(e['prenoms']));
+          final poste = s(e['poste']);
+          return '$nom;$prenom;$poste';
+        })
+        .where((line) => line.trim().isNotEmpty)
+        .join('\n');
+  }
+
+  List<Map<String, dynamic>> parsePlayersLines(String raw) {
+    final out = <Map<String, dynamic>>[];
+    for (final line in raw.split('\n')) {
+      final cleaned = line.trim();
+      if (cleaned.isEmpty) continue;
+      final parts = cleaned
+          .split(RegExp(r'[;,\t|]'))
+          .map((e) => e.trim())
+          .toList();
+      out.add({
+        'nom': parts.isNotEmpty ? parts[0] : '',
+        'prenoms': parts.length > 1 ? parts[1] : '',
+        'surnom': parts.length > 2 ? parts[2] : '',
+        'dossard': parts.length > 3 ? parts[3] : '',
+      });
+    }
+    return out;
+  }
+
+  List<Map<String, dynamic>> parseStaffLines(String raw) {
+    final out = <Map<String, dynamic>>[];
+    for (final line in raw.split('\n')) {
+      final cleaned = line.trim();
+      if (cleaned.isEmpty) continue;
+      final parts = cleaned
+          .split(RegExp(r'[;,\t|]'))
+          .map((e) => e.trim())
+          .toList();
+      out.add({
+        'nom': parts.isNotEmpty ? parts[0] : '',
+        'prenom': parts.length > 1 ? parts[1] : '',
+        'poste': parts.length > 2 ? parts[2] : '',
+      });
+    }
+    return out;
+  }
+
+  List<List<String>> parseTabularBytes(Uint8List bytes, String fileName) {
+    final lower = fileName.toLowerCase();
+    if (lower.endsWith('.csv')) {
+      final text = utf8.decode(bytes, allowMalformed: true);
+      final lines = text
+          .split(RegExp(r'\r?\n'))
+          .where((l) => l.trim().isNotEmpty);
+      return lines
+          .map((l) => l.split(RegExp(r'[;,\t]')).map((e) => e.trim()).toList())
+          .toList();
+    }
+    final excel = Excel.decodeBytes(bytes);
+    if (excel.tables.isEmpty) return [];
+    final table = excel.tables.values.first;
+    return table.rows
+        .map((r) => r.map((c) => c?.value?.toString().trim() ?? '').toList())
+        .where((r) => r.any((c) => c.isNotEmpty))
+        .toList();
+  }
+
+  Future<List<Map<String, dynamic>>?> importPlayersFromFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xls', 'csv'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return null;
+    final file = result.files.first;
+    final bytes = file.bytes;
+    if (bytes == null) return null;
+
+    final rows = parseTabularBytes(bytes, file.name);
+    if (rows.isEmpty) return [];
+    final header = rows.first.map(normalizeHeader).toList();
+    int idx(String key) => header.indexOf(key);
+    final nomIdx = idx('nom');
+    final prenomsIdx = idx('prenoms') >= 0 ? idx('prenoms') : idx('prenom');
+    final surnomIdx = idx('surnom');
+    final dossardIdx = idx('dossard') >= 0 ? idx('dossard') : idx('dorsard');
+
+    final dataRows = rows.skip(1);
+    final out = <Map<String, dynamic>>[];
+    for (final r in dataRows) {
+      final nom = nomIdx >= 0 && nomIdx < r.length ? r[nomIdx] : '';
+      final prenoms = prenomsIdx >= 0 && prenomsIdx < r.length
+          ? r[prenomsIdx]
+          : '';
+      final surnom = surnomIdx >= 0 && surnomIdx < r.length ? r[surnomIdx] : '';
+      final dossard = dossardIdx >= 0 && dossardIdx < r.length
+          ? r[dossardIdx]
+          : '';
+      if ([nom, prenoms, surnom, dossard].every((v) => v.trim().isEmpty)) {
+        continue;
+      }
+      out.add({
+        'nom': nom,
+        'prenoms': prenoms,
+        'surnom': surnom,
+        'dossard': dossard,
+      });
+    }
+    return out;
+  }
+
+  Future<List<Map<String, dynamic>>?> importStaffFromFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: ['xlsx', 'xls', 'csv'],
+      withData: true,
+    );
+    if (result == null || result.files.isEmpty) return null;
+    final file = result.files.first;
+    final bytes = file.bytes;
+    if (bytes == null) return null;
+
+    final rows = parseTabularBytes(bytes, file.name);
+    if (rows.isEmpty) return [];
+    final header = rows.first.map(normalizeHeader).toList();
+    int idx(String key) => header.indexOf(key);
+    final nomIdx = idx('nom');
+    final prenomIdx = idx('prenom') >= 0 ? idx('prenom') : idx('prenoms');
+    final posteIdx = idx('poste');
+
+    final dataRows = rows.skip(1);
+    final out = <Map<String, dynamic>>[];
+    for (final r in dataRows) {
+      final nom = nomIdx >= 0 && nomIdx < r.length ? r[nomIdx] : '';
+      final prenom = prenomIdx >= 0 && prenomIdx < r.length ? r[prenomIdx] : '';
+      final poste = posteIdx >= 0 && posteIdx < r.length ? r[posteIdx] : '';
+      if ([nom, prenom, poste].every((v) => v.trim().isEmpty)) continue;
+      out.add({'nom': nom, 'prenom': prenom, 'poste': poste});
+    }
+    return out;
+  }
 
   Future<void> load() async {
     setState(() {
@@ -457,39 +628,192 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     }
   }
 
-  Future<void> addTeam() async {
-    final n = TextEditingController();
-    final logo = TextEditingController();
-    final players = TextEditingController();
-    final staff = TextEditingController();
-    await openSimpleForm(
-      title: 'Ajouter equipe',
-      controllers: [n, logo, players, staff],
-      labels: [
-        'Nom equipe',
-        'Logo URL (jpg/jpeg/png)',
-        'Joueurs JSON',
-        'Staff JSON',
-      ],
-      onSave: () async {
-        if (!validImage(logo.text)) return;
-        final p = players.text.trim().isEmpty ? null : jsonDecode(players.text);
-        final st = staff.text.trim().isEmpty ? null : jsonDecode(staff.text);
-        await run(
-          () => api.dio.post(
-            '/admin/teams',
-            data: {
-              'name': n.text.trim(),
-              'logo_url': logo.text.trim(),
-              'players': p,
-              'staff': st,
-            },
+  Future<void> openTeamForm({Map<String, dynamic>? team}) async {
+    final isEdit = team != null;
+    final n = TextEditingController(text: s(team?['name']));
+    final playersLines = TextEditingController(
+      text: playersToLines(team?['players']),
+    );
+    final staffLines = TextEditingController(
+      text: staffToLines(team?['staff']),
+    );
+    final logoData = ValueNotifier<String>(s(team?['logo_url']));
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: Text(isEdit ? 'Modifier equipe' : 'Ajouter equipe'),
+        content: SizedBox(
+          width: 680,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: n,
+                  decoration: const InputDecoration(
+                    labelText: 'Nom equipe',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ValueListenableBuilder<String>(
+                  valueListenable: logoData,
+                  builder: (context, value, child) {
+                    final hasLogo = value.trim().isNotEmpty;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            final selected = await pickImageAsDataUrl();
+                            if (selected != null && selected.isNotEmpty) {
+                              logoData.value = selected;
+                            }
+                          },
+                          icon: const Icon(Icons.image_outlined),
+                          label: Text(
+                            hasLogo
+                                ? 'Logo selectionne (changer)'
+                                : 'Uploader logo (jpg/jpeg/png)',
+                          ),
+                        ),
+                        if (hasLogo) ...[
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.network(
+                              value,
+                              height: 120,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Joueurs (max 20) - format ligne: Nom;Prenoms;Surnom;Dossard',
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () async {
+                        final imported = await importPlayersFromFile();
+                        if (imported == null) return;
+                        playersLines.text = imported
+                            .map(
+                              (e) =>
+                                  '${s(e['nom'])};${s(e['prenoms'])};${s(e['surnom'])};${s(e['dossard'])}',
+                            )
+                            .join('\n');
+                      },
+                      icon: const Icon(Icons.table_view),
+                      label: const Text('Importer Excel'),
+                    ),
+                  ],
+                ),
+                TextField(
+                  controller: playersLines,
+                  minLines: 6,
+                  maxLines: 10,
+                  decoration: const InputDecoration(
+                    hintText: 'Ex: KOUASSI;Jean Marc;Le Mur;4',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Text(
+                        'Staff (max 10) - format ligne: Nom;Prenom;Poste',
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () async {
+                        final imported = await importStaffFromFile();
+                        if (imported == null) return;
+                        staffLines.text = imported
+                            .map(
+                              (e) =>
+                                  '${s(e['nom'])};${s(e['prenom'])};${s(e['poste'])}',
+                            )
+                            .join('\n');
+                      },
+                      icon: const Icon(Icons.table_chart_outlined),
+                      label: const Text('Importer Excel'),
+                    ),
+                  ],
+                ),
+                TextField(
+                  controller: staffLines,
+                  minLines: 4,
+                  maxLines: 8,
+                  decoration: const InputDecoration(
+                    hintText: 'Ex: TRAORE;Ibrahim;Coach',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
           ),
-          'Equipe ajoutee',
-        );
-      },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(isEdit ? 'Mettre a jour' : 'Enregistrer'),
+          ),
+        ],
+      ),
+    );
+
+    if (ok != true) return;
+
+    final players = parsePlayersLines(playersLines.text);
+    final staff = parseStaffLines(staffLines.text);
+    if (players.length > 20) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Maximum 20 joueurs autorises.')),
+      );
+      return;
+    }
+    if (staff.length > 10) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Maximum 10 membres staff autorises.')),
+      );
+      return;
+    }
+
+    final payload = {
+      'name': n.text.trim(),
+      'logo_url': logoData.value.trim().isEmpty ? null : logoData.value.trim(),
+      'players': players,
+      'staff': staff,
+    };
+
+    final teamId = s(team?['id']);
+    await run(
+      () => isEdit
+          ? api.dio.patch('/admin/teams/$teamId', data: payload)
+          : api.dio.post('/admin/teams', data: payload),
+      isEdit ? 'Equipe mise a jour' : 'Equipe ajoutee',
     );
   }
+
+  Future<void> addTeam() => openTeamForm();
+
+  Future<void> editTeam(Map<String, dynamic> team) => openTeamForm(team: team);
 
   Future<void> addMatch() async {
     final home = TextEditingController();
@@ -798,6 +1122,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         return TeamsPage(
           teams: teams,
           onAdd: addTeam,
+          onEdit: editTeam,
           onDelete: (e) => run(
             () => api.dio.delete('/admin/teams/${s(e['id'])}'),
             'Equipe supprimee',

@@ -8,6 +8,7 @@ class TeamsPage extends StatelessWidget {
     super.key,
     required this.teams,
     required this.onAdd,
+    required this.onEdit,
     required this.onDelete,
     required this.green,
     required this.saving,
@@ -15,6 +16,7 @@ class TeamsPage extends StatelessWidget {
 
   final List<Map<String, dynamic>> teams;
   final VoidCallback onAdd;
+  final Future<void> Function(Map<String, dynamic>) onEdit;
   final Future<void> Function(Map<String, dynamic>) onDelete;
   final Color green;
   final bool saving;
@@ -28,7 +30,7 @@ class TeamsPage extends StatelessWidget {
       children: [
         SectionHeader(
           title: 'Equipes',
-          subtitle: 'Nom, logo, joueurs et staff en JSON',
+          subtitle: 'Logo image, joueurs (max 20) et staff (max 10)',
           onPressed: onAdd,
           buttonLabel: 'Ajouter',
           icon: Icons.add,
@@ -39,6 +41,7 @@ class TeamsPage extends StatelessWidget {
             title: s(e['name']),
             subtitle:
                 'Joueurs: ${e['players'] is List ? (e['players'] as List).length : 0} | Staff: ${e['staff'] is List ? (e['staff'] as List).length : 0}',
+            onEdit: () => onEdit(e),
             deleteDisabled: saving,
             onDelete: () => onDelete(e),
           ),

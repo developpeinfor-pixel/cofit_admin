@@ -5,12 +5,14 @@ class CardItem extends StatelessWidget {
     super.key,
     required this.title,
     required this.subtitle,
+    this.onEdit,
     this.onDelete,
     this.deleteDisabled = false,
   });
 
   final String title;
   final String subtitle;
+  final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final bool deleteDisabled;
 
@@ -26,11 +28,22 @@ class CardItem extends StatelessWidget {
       child: ListTile(
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
         subtitle: Text(subtitle),
-        trailing: onDelete == null
+        trailing: (onEdit == null && onDelete == null)
             ? null
-            : IconButton(
-                onPressed: deleteDisabled ? null : onDelete,
-                icon: Icon(Icons.delete, color: Colors.red.shade700),
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (onEdit != null)
+                    IconButton(
+                      onPressed: deleteDisabled ? null : onEdit,
+                      icon: const Icon(Icons.edit, color: Color(0xFF0E5D2F)),
+                    ),
+                  if (onDelete != null)
+                    IconButton(
+                      onPressed: deleteDisabled ? null : onDelete,
+                      icon: Icon(Icons.delete, color: Colors.red.shade700),
+                    ),
+                ],
               ),
       ),
     );
