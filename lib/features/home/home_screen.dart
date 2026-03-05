@@ -5,6 +5,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/utils/image_picker.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../core/utils/file_downloader.dart';
 import '../auth/login/login_screen.dart';
@@ -312,29 +313,148 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
   Future<void> addCompetition() async {
     final n = TextEditingController();
-    final season = TextEditingController();
     final loc = TextEditingController();
-    final img = TextEditingController();
-    await openSimpleForm(
-      title: 'Ajouter competition',
-      controllers: [n, season, loc, img],
-      labels: ['Nom', 'Saison', 'Lieu', 'Banniere URL (jpg/jpeg/png)'],
-      onSave: () {
-        if (!validImage(img.text)) return Future.value();
-        return run(
-          () => api.dio.post(
-            '/admin/competitions',
-            data: {
-              'name': n.text.trim(),
-              'season': season.text.trim(),
-              'location': loc.text.trim(),
-              'banner_url': img.text.trim(),
-            },
+    final seasonNames =
+        seasons
+            .map((e) => s(e['name']).trim())
+            .where((v) => v.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+
+    if (seasonNames.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Aucune saison disponible. Cree d abord une saison.'),
+        ),
+      );
+      return;
+    }
+
+    final selectedSeason = ValueNotifier<String>(seasonNames.first);
+    final bannerDataUrl = ValueNotifier<String>('');
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('Ajouter competition'),
+        content: SizedBox(
+          width: 580,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                TextField(
+                  controller: n,
+                  decoration: const InputDecoration(
+                    labelText: 'Nom',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ValueListenableBuilder<String>(
+                  valueListenable: selectedSeason,
+                  builder: (context, value, child) {
+                    return DropdownButtonFormField<String>(
+                      initialValue: value,
+                      decoration: const InputDecoration(
+                        labelText: 'Saison',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: seasonNames
+                          .map(
+                            (name) => DropdownMenuItem(
+                              value: name,
+                              child: Text(name),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (next) {
+                        if (next != null) {
+                          selectedSeason.value = next;
+                        }
+                      },
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: loc,
+                  decoration: const InputDecoration(
+                    labelText: 'Lieu',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ValueListenableBuilder<String>(
+                  valueListenable: bannerDataUrl,
+                  builder: (context, value, child) {
+                    final hasImage = value.isNotEmpty;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            final image = await pickImageAsDataUrl();
+                            if (image != null && image.isNotEmpty) {
+                              bannerDataUrl.value = image;
+                            }
+                          },
+                          icon: const Icon(Icons.upload_file),
+                          label: Text(
+                            hasImage
+                                ? 'Banniere selectionnee (changer)'
+                                : 'Uploader banniere (jpg/jpeg/png)',
+                          ),
+                        ),
+                        if (hasImage) ...[
+                          const SizedBox(height: 8),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(10),
+                            child: Image.network(
+                              value,
+                              height: 140,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
-          'Competition ajoutee',
-        );
-      },
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
     );
+
+    if (ok == true) {
+      await run(
+        () => api.dio.post(
+          '/admin/competitions',
+          data: {
+            'name': n.text.trim(),
+            'season': selectedSeason.value,
+            'location': loc.text.trim(),
+            'banner_url': bannerDataUrl.value.isEmpty
+                ? null
+                : bannerDataUrl.value,
+          },
+        ),
+        'Competition ajoutee',
+      );
+    }
   }
 
   Future<void> addTeam() async {
