@@ -135,6 +135,15 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       ).hasMatch(value.trim());
   bool validMp4(String value) =>
       RegExp(r'\.mp4(\?.*)?$', caseSensitive: false).hasMatch(value.trim());
+  bool hasAtLeastTwoColors(String value) {
+    final colors = value
+        .split(RegExp(r'[;,]'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    return colors.length >= 2;
+  }
+
   String normalizeHeader(String value) => value
       .toLowerCase()
       .replaceAll('é', 'e')
@@ -152,7 +161,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           final nom = s(e['nom']);
           final prenoms = s(e['prenoms'], s(e['prenom']));
           final surnom = s(e['surnom'], s(e['surnom']));
-          final dossard = s(e['dossard'], s(e['dorsal']));
+          final dossard = s(e['dossard'], s(e['dossart'], s(e['dorsal'])));
           return '$nom;$prenoms;$surnom;$dossard';
         })
         .where((line) => line.trim().isNotEmpty)
@@ -631,6 +640,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   Future<void> openTeamForm({Map<String, dynamic>? team}) async {
     final isEdit = team != null;
     final n = TextEditingController(text: s(team?['name']));
+    final clubColors = TextEditingController(text: s(team?['club_colors']));
     final playersLines = TextEditingController(
       text: playersToLines(team?['players']),
     );
@@ -653,6 +663,15 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   controller: n,
                   decoration: const InputDecoration(
                     labelText: 'Nom equipe',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: clubColors,
+                  decoration: const InputDecoration(
+                    labelText: 'Couleurs du club (min 2)',
+                    hintText: 'Ex: Vert, Blanc',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -778,6 +797,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
     if (ok != true) return;
 
+    if (!hasAtLeastTwoColors(clubColors.text)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Ajoute au moins 2 couleurs pour le club.'),
+        ),
+      );
+      return;
+    }
+
     final players = parsePlayersLines(playersLines.text);
     final staff = parseStaffLines(staffLines.text);
     if (players.length > 20) {
@@ -797,6 +826,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
 
     final payload = {
       'name': n.text.trim(),
+      'club_colors': clubColors.text.trim(),
       'logo_url': logoData.value.trim().isEmpty ? null : logoData.value.trim(),
       'players': players,
       'staff': staff,
