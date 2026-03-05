@@ -70,11 +70,66 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   String s(dynamic v, [String fallback = '']) => v?.toString() ?? fallback;
+  bool isDateLabel(String label) => label.toLowerCase().contains('date');
+  String formatDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+  DateTime? parseIsoDate(String value) {
+    final raw = value.trim();
+    if (raw.isEmpty) return null;
+    return DateTime.tryParse(raw);
+  }
+
+  Future<void> pickDate(TextEditingController controller) async {
+    final parsed = parseIsoDate(controller.text);
+    final now = DateTime.now();
+    final initial = parsed ?? now;
+
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        final theme = Theme.of(context);
+        return Theme(
+          data: theme.copyWith(
+            colorScheme: theme.colorScheme.copyWith(
+              primary: green,
+              onPrimary: Colors.white,
+              surface: Colors.white,
+              onSurface: const Color(0xFF1D1D1D),
+            ),
+            datePickerTheme: DatePickerThemeData(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
+              ),
+              headerBackgroundColor: green,
+              headerForegroundColor: Colors.white,
+              todayBorder: const BorderSide(
+                color: Color(0xFF0E5D2F),
+                width: 1.2,
+              ),
+              dayShape: WidgetStateProperty.all(
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (selected != null) {
+      controller.text = formatDate(selected);
+    }
+  }
+
   bool validImage(String value) =>
       value.trim().isEmpty ||
-      RegExp(r'\.(jpg|jpeg|png)(\?.*)?$', caseSensitive: false).hasMatch(
-        value.trim(),
-      );
+      RegExp(
+        r'\.(jpg|jpeg|png)(\?.*)?$',
+        caseSensitive: false,
+      ).hasMatch(value.trim());
   bool validMp4(String value) =>
       RegExp(r'\.mp4(\?.*)?$', caseSensitive: false).hasMatch(value.trim());
 
@@ -123,7 +178,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     try {
       await action();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(success)));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(success)));
       await load();
     } on DioException catch (e) {
       if (!mounted) return;
@@ -158,16 +215,30 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 controllers.length,
                 (i) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: TextField(
-                    controller: controllers[i],
-                    maxLines: labels[i].contains('JSON') ? 4 : 1,
-                    decoration: InputDecoration(
-                      labelText: labels[i],
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                  ),
+                  child: isDateLabel(labels[i])
+                      ? TextField(
+                          controller: controllers[i],
+                          readOnly: true,
+                          onTap: () => pickDate(controllers[i]),
+                          decoration: InputDecoration(
+                            labelText: labels[i],
+                            hintText: 'YYYY-MM-DD',
+                            suffixIcon: const Icon(Icons.calendar_month),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        )
+                      : TextField(
+                          controller: controllers[i],
+                          maxLines: labels[i].contains('JSON') ? 4 : 1,
+                          decoration: InputDecoration(
+                            labelText: labels[i],
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                        ),
                 ),
               ),
             ),
@@ -228,7 +299,11 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       onSave: () => run(
         () => api.dio.post(
           '/admin/seasons',
-          data: {'name': n.text.trim(), 'start_date': d1.text.trim(), 'end_date': d2.text.trim()},
+          data: {
+            'name': n.text.trim(),
+            'start_date': d1.text.trim(),
+            'end_date': d2.text.trim(),
+          },
         ),
         'Saison ajoutee',
       ),
@@ -249,7 +324,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         return run(
           () => api.dio.post(
             '/admin/competitions',
-            data: {'name': n.text.trim(), 'season': season.text.trim(), 'location': loc.text.trim(), 'banner_url': img.text.trim()},
+            data: {
+              'name': n.text.trim(),
+              'season': season.text.trim(),
+              'location': loc.text.trim(),
+              'banner_url': img.text.trim(),
+            },
           ),
           'Competition ajoutee',
         );
@@ -265,7 +345,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     await openSimpleForm(
       title: 'Ajouter equipe',
       controllers: [n, logo, players, staff],
-      labels: ['Nom equipe', 'Logo URL (jpg/jpeg/png)', 'Joueurs JSON', 'Staff JSON'],
+      labels: [
+        'Nom equipe',
+        'Logo URL (jpg/jpeg/png)',
+        'Joueurs JSON',
+        'Staff JSON',
+      ],
       onSave: () async {
         if (!validImage(logo.text)) return;
         final p = players.text.trim().isEmpty ? null : jsonDecode(players.text);
@@ -273,7 +358,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         await run(
           () => api.dio.post(
             '/admin/teams',
-            data: {'name': n.text.trim(), 'logo_url': logo.text.trim(), 'players': p, 'staff': st},
+            data: {
+              'name': n.text.trim(),
+              'logo_url': logo.text.trim(),
+              'players': p,
+              'staff': st,
+            },
           ),
           'Equipe ajoutee',
         );
@@ -289,9 +379,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     await openSimpleForm(
       title: 'Ajouter match',
       controllers: [home, away, date, stats],
-      labels: ['ID Equipe domicile', 'ID Equipe exterieur', 'Date YYYY-MM-DD', 'Stats JSON'],
+      labels: [
+        'ID Equipe domicile',
+        'ID Equipe exterieur',
+        'Date YYYY-MM-DD',
+        'Stats JSON',
+      ],
       onSave: () async {
-        final parsed = stats.text.trim().isEmpty ? null : jsonDecode(stats.text);
+        final parsed = stats.text.trim().isEmpty
+            ? null
+            : jsonDecode(stats.text);
         await run(
           () => api.dio.post(
             '/admin/matches',
@@ -345,7 +442,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     await openSimpleForm(
       title: 'Ajouter video',
       controllers: [t, u, ty, sz],
-      labels: ['Titre', 'URL MP4', 'Type: summary/highlight/gallery/interview', 'Taille MB (<=500)'],
+      labels: [
+        'Titre',
+        'URL MP4',
+        'Type: summary/highlight/gallery/interview',
+        'Taille MB (<=500)',
+      ],
       onSave: () {
         final size = int.tryParse(sz.text.trim());
         if (!validMp4(u.text) || (size != null && size > 500)) {
@@ -397,28 +499,43 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               children: [
                 TextField(
                   controller: f,
-                  decoration: const InputDecoration(labelText: 'Prenom', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Prenom',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: l,
-                  decoration: const InputDecoration(labelText: 'Nom', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Nom',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: e,
-                  decoration: const InputDecoration(labelText: 'Email', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Email',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: p,
-                  decoration: const InputDecoration(labelText: 'Telephone', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Telephone',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 TextField(
                   controller: pwd,
                   obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Mot de passe', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(
+                    labelText: 'Mot de passe',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
                 const SizedBox(height: 10),
                 ValueListenableBuilder<String>(
@@ -426,11 +543,23 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   builder: (context, value, child) {
                     return DropdownButtonFormField<String>(
                       initialValue: value,
-                      decoration: const InputDecoration(labelText: 'Role', border: OutlineInputBorder()),
+                      decoration: const InputDecoration(
+                        labelText: 'Role',
+                        border: OutlineInputBorder(),
+                      ),
                       items: const [
-                        DropdownMenuItem(value: roleGeneral, child: Text('Admin generale')),
-                        DropdownMenuItem(value: roleSenior, child: Text('Admin seniors')),
-                        DropdownMenuItem(value: roleJunior, child: Text('Admin juniors')),
+                        DropdownMenuItem(
+                          value: roleGeneral,
+                          child: Text('Admin generale'),
+                        ),
+                        DropdownMenuItem(
+                          value: roleSenior,
+                          child: Text('Admin seniors'),
+                        ),
+                        DropdownMenuItem(
+                          value: roleJunior,
+                          child: Text('Admin juniors'),
+                        ),
                       ],
                       onChanged: (next) {
                         if (next != null) {
@@ -445,8 +574,14 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Annuler')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Creer')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Creer'),
+          ),
         ],
       ),
     );
@@ -496,7 +631,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       final payload = jsonDecode(
         utf8.decode(base64Url.decode(base64Url.normalize(parts[1]))),
       );
-      final parsedRole = payload is Map<String, dynamic> ? payload['role'] : null;
+      final parsedRole = payload is Map<String, dynamic>
+          ? payload['role']
+          : null;
       if (parsedRole is String && parsedRole.isNotEmpty) {
         await storage.saveRole(parsedRole);
         return parsedRole;
