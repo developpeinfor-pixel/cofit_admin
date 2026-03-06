@@ -903,76 +903,134 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       );
       return;
     }
+    if (teams.isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Aucune equipe disponible. Cree les equipes d abord.'),
+        ),
+      );
+      return;
+    }
 
     final name = TextEditingController();
+    final teamCountController = TextEditingController();
     final selectedCompetition = ValueNotifier<String>(
       s(competitions.first['id']),
     );
     final phase = ValueNotifier<String>('group_stage');
+    final selectedTeams = ValueNotifier<Set<String>>(<String>{});
 
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('Ajouter groupe'),
         content: SizedBox(
-          width: dialogWidth(560),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ValueListenableBuilder<String>(
-                valueListenable: selectedCompetition,
-                builder: (context, value, child) {
-                  return DropdownButtonFormField<String>(
-                    initialValue: value,
-                    decoration: const InputDecoration(
-                      labelText: 'Competition',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: competitions
-                        .map(
-                          (c) => DropdownMenuItem(
-                            value: s(c['id']),
-                            child: Text('${s(c['name'])} (${s(c['season'])})'),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (next) {
-                      if (next != null) selectedCompetition.value = next;
-                    },
-                  );
-                },
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: name,
-                decoration: const InputDecoration(
-                  labelText: 'Nom du groupe (ex: Groupe A)',
-                  border: OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 10),
-              ValueListenableBuilder<String>(
-                valueListenable: phase,
-                builder: (context, value, child) {
-                  return DropdownButtonFormField<String>(
-                    initialValue: value,
-                    decoration: const InputDecoration(
-                      labelText: 'Phase',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: 'group_stage',
-                        child: Text('Phase de poules'),
+          width: dialogWidth(620),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ValueListenableBuilder<String>(
+                  valueListenable: selectedCompetition,
+                  builder: (context, value, child) {
+                    return DropdownButtonFormField<String>(
+                      initialValue: value,
+                      decoration: const InputDecoration(
+                        labelText: 'Competition',
+                        border: OutlineInputBorder(),
                       ),
-                    ],
-                    onChanged: (next) {
-                      if (next != null) phase.value = next;
-                    },
-                  );
-                },
-              ),
-            ],
+                      items: competitions
+                          .map(
+                            (c) => DropdownMenuItem(
+                              value: s(c['id']),
+                              child: Text(
+                                '${s(c['name'])} (${s(c['season'])})',
+                              ),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: (next) {
+                        if (next != null) selectedCompetition.value = next;
+                      },
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: name,
+                  decoration: const InputDecoration(
+                    labelText: 'Nom du groupe (ex: Groupe A)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                ValueListenableBuilder<String>(
+                  valueListenable: phase,
+                  builder: (context, value, child) {
+                    return DropdownButtonFormField<String>(
+                      initialValue: value,
+                      decoration: const InputDecoration(
+                        labelText: 'Phase',
+                        border: OutlineInputBorder(),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'group_stage',
+                          child: Text('Phase de poules'),
+                        ),
+                      ],
+                      onChanged: (next) {
+                        if (next != null) phase.value = next;
+                      },
+                    );
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: teamCountController,
+                  keyboardType: TextInputType.number,
+                  decoration: InputDecoration(
+                    labelText: 'Nombre d equipes dans le groupe',
+                    helperText: 'Maximum ${teams.length} equipes',
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Selection des equipes',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 6),
+                ValueListenableBuilder<Set<String>>(
+                  valueListenable: selectedTeams,
+                  builder: (context, selected, child) {
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: teams.map((team) {
+                        final id = s(team['id']);
+                        final isSelected = selected.contains(id);
+                        return FilterChip(
+                          selected: isSelected,
+                          label: Text(s(team['name'], 'Equipe')),
+                          onSelected: (checked) {
+                            final next = Set<String>.from(selected);
+                            if (checked) {
+                              next.add(id);
+                            } else {
+                              next.remove(id);
+                            }
+                            selectedTeams.value = next;
+                          },
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
@@ -989,6 +1047,47 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
 
     if (ok == true) {
+      final expectedCount = int.tryParse(teamCountController.text.trim());
+      if (name.text.trim().isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Le nom du groupe est obligatoire.')),
+        );
+        return;
+      }
+      if (expectedCount == null || expectedCount < 1) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Le nombre d equipes doit etre superieur a 0.'),
+          ),
+        );
+        return;
+      }
+      if (expectedCount > teams.length) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Le nombre d equipes ne peut pas depasser ${teams.length}.',
+            ),
+          ),
+        );
+        return;
+      }
+      final selectedIds = selectedTeams.value.toList();
+      if (selectedIds.length != expectedCount) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Selectionne exactement $expectedCount equipes pour ce groupe.',
+            ),
+          ),
+        );
+        return;
+      }
+
       await run(
         () => api.dio.post(
           '/admin/groups',
@@ -996,6 +1095,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             'competition_id': selectedCompetition.value,
             'name': name.text.trim(),
             'phase': phase.value,
+            'team_count': expectedCount,
+            'team_ids': selectedIds,
           },
         ),
         'Groupe ajoute',
