@@ -151,6 +151,44 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     return colors.length >= 2;
   }
 
+  Set<String> groupTeamIds(Map<String, dynamic> group) {
+    final ids = <String>{};
+
+    final directIds = group['team_ids'];
+    if (directIds is List) {
+      for (final raw in directIds) {
+        final id = s(raw);
+        if (id.isNotEmpty) ids.add(id);
+      }
+    }
+
+    final rows = group['teams'];
+    if (rows is List) {
+      for (final raw in rows) {
+        if (raw is! Map) continue;
+        final row = Map<String, dynamic>.from(raw);
+        final teamId = s(row['team_id']);
+        if (teamId.isNotEmpty) ids.add(teamId);
+
+        final team = row['team'];
+        if (team is Map) {
+          final nestedId = s(team['id']);
+          if (nestedId.isNotEmpty) ids.add(nestedId);
+        }
+      }
+    }
+
+    return ids;
+  }
+
+  Set<String> assignedTeamIds() {
+    final ids = <String>{};
+    for (final group in groups) {
+      ids.addAll(groupTeamIds(group));
+    }
+    return ids;
+  }
+
   String normalizeHeader(String value) => value
       .toLowerCase()
       .replaceAll('é', 'e')
@@ -952,7 +990,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                           )
                           .toList(),
                       onChanged: (next) {
-                        if (next != null) selectedCompetition.value = next;
+                        if (next == null) return;
+                        selectedCompetition.value = next;
+                        final assigned = assignedTeamIds();
+                        selectedTeams.value = selectedTeams.value
+                            .where((id) => !assigned.contains(id))
+                            .toSet();
                       },
                     );
                   },
@@ -988,14 +1031,24 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   },
                 ),
                 const SizedBox(height: 10),
-                TextField(
-                  controller: teamCountController,
-                  keyboardType: TextInputType.number,
-                  decoration: InputDecoration(
-                    labelText: 'Nombre d equipes dans le groupe',
-                    helperText: 'Maximum ${teams.length} equipes',
-                    border: const OutlineInputBorder(),
-                  ),
+                ValueListenableBuilder<String>(
+                  valueListenable: selectedCompetition,
+                  builder: (context, _, child) {
+                    final assigned = assignedTeamIds();
+                    final availableCount = teams
+                        .where((team) => !assigned.contains(s(team['id'])))
+                        .length;
+                    return TextField(
+                      controller: teamCountController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        labelText: 'Nombre d equipes dans le groupe',
+                        helperText:
+                            'Maximum $availableCount equipes disponibles',
+                        border: const OutlineInputBorder(),
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 12),
                 const Text(
@@ -1004,28 +1057,61 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 ),
                 const SizedBox(height: 6),
                 ValueListenableBuilder<Set<String>>(
-                  valueListenable: selectedTeams,
-                  builder: (context, selected, child) {
-                    return Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: teams.map((team) {
-                        final id = s(team['id']);
-                        final isSelected = selected.contains(id);
-                        return FilterChip(
-                          selected: isSelected,
-                          label: Text(s(team['name'], 'Equipe')),
-                          onSelected: (checked) {
-                            final next = Set<String>.from(selected);
-                            if (checked) {
-                              next.add(id);
-                            } else {
-                              next.remove(id);
-                            }
-                            selectedTeams.value = next;
-                          },
-                        );
-                      }).toList(),
+                    valueListenable: selectedTeams,
+                    builder: (context, selected, child) {
+                      final assigned = assignedTeamIds();
+                      return Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: teams.map((team) {
+                          final id = s(team['id']);
+                          final isSelected = selected.contains(id);
+                          final isAssigned = assigned.contains(id);
+                          return FilterChip(
+                            selected: isSelected,
+                            label: Text(
+                              isAssigned
+                                  ? '${s(team['name'], 'Equipe')} (deja dans un groupe)'
+                                  : s(team['name'], 'Equipe'),
+                            ),
+                            onSelected: isAssigned
+                                ? null
+                                : (checked) {
+                              final next = Set<String>.from(selected);
+                              if (checked) {
+                                next.add(id);
+                              } else {
+                                next.remove(id);
+                              }
+                              selectedTeams.value = next;
+                            },
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
+                ValueListenableBuilder<String>(
+                  valueListenable: selectedCompetition,
+                  builder: (context, _, child) {
+                    final assigned = assignedTeamIds();
+                    final availableCount = teams
+                        .where((team) => !assigned.contains(s(team['id'])))
+                        .length;
+                    if (availableCount == 0) {
+                      return const Padding(
+                        padding: EdgeInsets.only(top: 10),
+                        child: Text(
+                          'Toutes les equipes sont deja affectees a un groupe.',
+                          style: TextStyle(color: Colors.red),
+                        ),
+                      );
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 10),
+                      child: Text(
+                        '$availableCount equipe(s) disponible(s).',
+                        style: const TextStyle(color: Color(0xFF5F6368)),
+                      ),
                     );
                   },
                 ),
@@ -1064,18 +1150,36 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         );
         return;
       }
-      if (expectedCount > teams.length) {
+      final assigned = assignedTeamIds();
+      final availableCount = teams
+          .where((team) => !assigned.contains(s(team['id'])))
+          .length;
+      if (expectedCount > availableCount) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Le nombre d equipes ne peut pas depasser ${teams.length}.',
+              'Le nombre d equipes ne peut pas depasser $availableCount equipe(s) disponible(s).',
             ),
           ),
         );
         return;
       }
       final selectedIds = selectedTeams.value.toList();
+      final conflictingIds = selectedIds
+          .where((id) => assigned.contains(id))
+          .toList();
+      if (conflictingIds.isNotEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Une equipe ne peut appartenir qu a un seul groupe.',
+            ),
+          ),
+        );
+        return;
+      }
       if (selectedIds.length != expectedCount) {
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
