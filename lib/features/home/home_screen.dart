@@ -7,10 +7,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/utils/image_picker.dart';
 import '../../core/storage/secure_storage.dart';
 import '../../core/utils/file_downloader.dart';
 import '../auth/login/login_screen.dart';
+import 'models/competition_model.dart';
+import 'models/dashboard_stats.dart';
 import 'pages/competitions_page.dart';
 import 'pages/dashboard_page.dart';
 import 'pages/admins_page.dart';
@@ -23,7 +24,11 @@ import 'pages/teams_page.dart';
 import 'pages/tickets_page.dart';
 import 'pages/videos_page.dart';
 import 'services/admin_home_service.dart';
+import 'utils/home_validators.dart';
 import 'widgets/admin_home_layout.dart';
+import 'widgets/dialogs/admin_account_form_dialog.dart';
+import 'widgets/dialogs/competition_form_dialog.dart';
+import 'widgets/dialogs/team_form_dialog.dart';
 
 class AdminHomeScreen extends StatefulWidget {
   const AdminHomeScreen({super.key});
@@ -49,9 +54,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   String role = '';
   int tab = 0;
 
-  Map<String, dynamic> dashboard = {};
+  DashboardStats dashboard = DashboardStats.empty();
   List<Map<String, dynamic>> seasons = [];
-  List<Map<String, dynamic>> competitions = [];
+  List<CompetitionModel> competitions = [];
   List<Map<String, dynamic>> teams = [];
   List<Map<String, dynamic>> groups = [];
   List<Map<String, dynamic>> matches = [];
@@ -75,7 +80,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   String s(dynamic v, [String fallback = '']) => v?.toString() ?? fallback;
-  bool isDateLabel(String label) => label.toLowerCase().contains('date');
   String formatDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
   DateTime? parseIsoDate(String value) {
@@ -129,26 +133,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     }
   }
 
-  bool validImage(String value) =>
-      value.trim().isEmpty ||
-      RegExp(
-        r'\.(jpg|jpeg|png)(\?.*)?$',
-        caseSensitive: false,
-      ).hasMatch(value.trim());
-  bool validMp4(String value) =>
-      RegExp(r'\.mp4(\?.*)?$', caseSensitive: false).hasMatch(value.trim());
   double dialogWidth(double preferred) {
     final max = MediaQuery.of(context).size.width * 0.92;
     return max < preferred ? max : preferred;
-  }
-
-  bool hasAtLeastTwoColors(String value) {
-    final colors = value
-        .split(RegExp(r'[;,]'))
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-    return colors.length >= 2;
   }
 
   Set<String> groupTeamIds(Map<String, dynamic> group) {
@@ -196,7 +183,27 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       .replaceAll('ê', 'e')
       .replaceAll('à', 'a')
       .replaceAll('ù', 'u')
-      .replaceAll(RegExp(r'[^a-z0-9]'), '');
+      .split('')
+      .where((ch) {
+        final code = ch.codeUnitAt(0);
+        final isDigit = code >= 48 && code <= 57;
+        final isLower = code >= 97 && code <= 122;
+        return isDigit || isLower;
+      })
+      .join();
+
+  List<String> splitByDelimiters(String input, Set<int> delimiters) {
+    final parts = <String>[];
+    var start = 0;
+    for (var i = 0; i < input.length; i++) {
+      if (delimiters.contains(input.codeUnitAt(i))) {
+        parts.add(input.substring(start, i));
+        start = i + 1;
+      }
+    }
+    parts.add(input.substring(start));
+    return parts;
+  }
 
   String playersToLines(dynamic value) {
     if (value is! List) return '';
@@ -232,8 +239,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     for (final line in raw.split('\n')) {
       final cleaned = line.trim();
       if (cleaned.isEmpty) continue;
-      final parts = cleaned
-          .split(RegExp(r'[;,\t|]'))
+      final parts = splitByDelimiters(cleaned, {59, 44, 9, 124})
           .map((e) => e.trim())
           .toList();
       out.add({
@@ -251,8 +257,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     for (final line in raw.split('\n')) {
       final cleaned = line.trim();
       if (cleaned.isEmpty) continue;
-      final parts = cleaned
-          .split(RegExp(r'[;,\t|]'))
+      final parts = splitByDelimiters(cleaned, {59, 44, 9, 124})
           .map((e) => e.trim())
           .toList();
       out.add({
@@ -268,11 +273,15 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     final lower = fileName.toLowerCase();
     if (lower.endsWith('.csv')) {
       final text = utf8.decode(bytes, allowMalformed: true);
-      final lines = text
-          .split(RegExp(r'\r?\n'))
-          .where((l) => l.trim().isNotEmpty);
+      final lines = const LineSplitter().convert(text).where(
+        (l) => l.trim().isNotEmpty,
+      );
       return lines
-          .map((l) => l.split(RegExp(r'[;,\t]')).map((e) => e.trim()).toList())
+          .map(
+            (l) => splitByDelimiters(l, {59, 44, 9})
+                .map((e) => e.trim())
+                .toList(),
+          )
           .toList();
     }
     final excel = Excel.decodeBytes(bytes);
@@ -429,6 +438,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     required List<TextEditingController> controllers,
     required List<String> labels,
     required Future<void> Function() onSave,
+    String? Function()? validateBeforeSave,
   }) async {
     final ok = await showDialog<bool>(
       context: context,
@@ -442,7 +452,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 controllers.length,
                 (i) => Padding(
                   padding: const EdgeInsets.only(bottom: 10),
-                  child: isDateLabel(labels[i])
+                  child: HomeValidators.isDateLabel(labels[i])
                       ? TextField(
                           controller: controllers[i],
                           readOnly: true,
@@ -477,7 +487,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
             child: const Text('Annuler'),
           ),
           FilledButton(
-            onPressed: () => Navigator.pop(context, true),
+            onPressed: () {
+              final validationError = validateBeforeSave?.call();
+              if (validationError != null && validationError.isNotEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text(validationError)),
+                );
+                return;
+              }
+              Navigator.pop(context, true);
+            },
             child: const Text('Enregistrer'),
           ),
         ],
@@ -538,8 +557,6 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   Future<void> addCompetition() async {
-    final n = TextEditingController();
-    final loc = TextEditingController();
     final seasonNames =
         seasons
             .map((e) => s(e['name']).trim())
@@ -558,292 +575,47 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       return;
     }
 
-    final selectedSeason = ValueNotifier<String>(seasonNames.first);
-    final bannerDataUrl = ValueNotifier<String>('');
-
-    final ok = await showDialog<bool>(
+    final form = await showCompetitionFormDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Ajouter competition'),
-        content: SizedBox(
-          width: dialogWidth(580),
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                TextField(
-                  controller: n,
-                  decoration: const InputDecoration(
-                    labelText: 'Nom',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                ValueListenableBuilder<String>(
-                  valueListenable: selectedSeason,
-                  builder: (context, value, child) {
-                    return DropdownButtonFormField<String>(
-                      initialValue: value,
-                      decoration: const InputDecoration(
-                        labelText: 'Saison',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: seasonNames
-                          .map(
-                            (name) => DropdownMenuItem(
-                              value: name,
-                              child: Text(name),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (next) {
-                        if (next != null) {
-                          selectedSeason.value = next;
-                        }
-                      },
-                    );
-                  },
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: loc,
-                  decoration: const InputDecoration(
-                    labelText: 'Lieu',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                ValueListenableBuilder<String>(
-                  valueListenable: bannerDataUrl,
-                  builder: (context, value, child) {
-                    final hasImage = value.isNotEmpty;
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: () async {
-                            final image = await pickImageAsDataUrl();
-                            if (image != null && image.isNotEmpty) {
-                              bannerDataUrl.value = image;
-                            }
-                          },
-                          icon: const Icon(Icons.upload_file),
-                          label: Text(
-                            hasImage
-                                ? 'Banniere selectionnee (changer)'
-                                : 'Uploader banniere (jpg/jpeg/png)',
-                          ),
-                        ),
-                        if (hasImage) ...[
-                          const SizedBox(height: 8),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(10),
-                            child: Image.network(
-                              value,
-                              height: 140,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        ],
-                      ],
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Enregistrer'),
-          ),
-        ],
-      ),
+      seasonNames: seasonNames,
+      width: dialogWidth(580),
     );
 
-    if (ok == true) {
-      await run(
-        () => api.dio.post(
-          '/admin/competitions',
-          data: {
-            'name': n.text.trim(),
-            'season': selectedSeason.value,
-            'location': loc.text.trim(),
-            'banner_url': bannerDataUrl.value.isEmpty
-                ? null
-                : bannerDataUrl.value,
-          },
-        ),
-        'Competition ajoutee',
-      );
-    }
+    if (form == null) return;
+
+    await run(
+      () => api.dio.post(
+        '/admin/competitions',
+        data: {
+          'name': form.name,
+          'season': form.season,
+          'location': form.location,
+          'banner_url': form.bannerUrl,
+        },
+      ),
+      'Competition ajoutee',
+    );
   }
 
   Future<void> openTeamForm({Map<String, dynamic>? team}) async {
     final isEdit = team != null;
-    final n = TextEditingController(text: s(team?['name']));
-    final clubColors = TextEditingController(text: s(team?['club_colors']));
-    final playersLines = TextEditingController(
-      text: playersToLines(team?['players']),
-    );
-    final staffLines = TextEditingController(
-      text: staffToLines(team?['staff']),
-    );
-    final logoData = ValueNotifier<String>(s(team?['logo_url']));
-
-    final ok = await showDialog<bool>(
+    final form = await showTeamFormDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: Text(isEdit ? 'Modifier equipe' : 'Ajouter equipe'),
-        content: SizedBox(
-          width: dialogWidth(680),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: n,
-                  decoration: const InputDecoration(
-                    labelText: 'Nom equipe',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: clubColors,
-                  decoration: const InputDecoration(
-                    labelText: 'Couleurs du club (min 2)',
-                    hintText: 'Ex: Vert, Blanc',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                ValueListenableBuilder<String>(
-                  valueListenable: logoData,
-                  builder: (context, value, child) {
-                    final hasLogo = value.trim().isNotEmpty;
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: () async {
-                            final selected = await pickImageAsDataUrl();
-                            if (selected != null && selected.isNotEmpty) {
-                              logoData.value = selected;
-                            }
-                          },
-                          icon: const Icon(Icons.image_outlined),
-                          label: Text(
-                            hasLogo
-                                ? 'Logo selectionne (changer)'
-                                : 'Uploader logo (jpg/jpeg/png)',
-                          ),
-                        ),
-                        if (hasLogo) ...[
-                          const SizedBox(height: 8),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(12),
-                            child: Image.network(
-                              value,
-                              height: 120,
-                              fit: BoxFit.cover,
-                            ),
-                          ),
-                        ],
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Joueurs (max 20) - format ligne: Nom;Prenoms;Surnom;Dossard',
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () async {
-                        final imported = await importPlayersFromFile();
-                        if (imported == null) return;
-                        playersLines.text = imported
-                            .map(
-                              (e) =>
-                                  '${s(e['nom'])};${s(e['prenoms'])};${s(e['surnom'])};${s(e['dossard'])}',
-                            )
-                            .join('\n');
-                      },
-                      icon: const Icon(Icons.table_view),
-                      label: const Text('Importer Excel'),
-                    ),
-                  ],
-                ),
-                TextField(
-                  controller: playersLines,
-                  minLines: 6,
-                  maxLines: 10,
-                  decoration: const InputDecoration(
-                    hintText: 'Ex: KOUASSI;Jean Marc;Le Mur;4',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Staff (max 10) - format ligne: Nom;Prenom;Poste',
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () async {
-                        final imported = await importStaffFromFile();
-                        if (imported == null) return;
-                        staffLines.text = imported
-                            .map(
-                              (e) =>
-                                  '${s(e['nom'])};${s(e['prenom'])};${s(e['poste'])}',
-                            )
-                            .join('\n');
-                      },
-                      icon: const Icon(Icons.table_chart_outlined),
-                      label: const Text('Importer Excel'),
-                    ),
-                  ],
-                ),
-                TextField(
-                  controller: staffLines,
-                  minLines: 4,
-                  maxLines: 8,
-                  decoration: const InputDecoration(
-                    hintText: 'Ex: TRAORE;Ibrahim;Coach',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(isEdit ? 'Mettre a jour' : 'Enregistrer'),
-          ),
-        ],
-      ),
+      isEdit: isEdit,
+      initialName: s(team?['name']),
+      initialClubColors: s(team?['club_colors']),
+      initialPlayersLines: playersToLines(team?['players']),
+      initialStaffLines: staffToLines(team?['staff']),
+      initialLogoUrl: s(team?['logo_url']),
+      width: dialogWidth(680),
+      onImportPlayers: importPlayersFromFile,
+      onImportStaff: importStaffFromFile,
+      stringify: s,
     );
 
-    if (ok != true) return;
+    if (form == null) return;
 
-    if (!hasAtLeastTwoColors(clubColors.text)) {
+    if (!HomeValidators.hasAtLeastTwoColors(form.clubColors)) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -853,8 +625,8 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       return;
     }
 
-    final players = parsePlayersLines(playersLines.text);
-    final staff = parseStaffLines(staffLines.text);
+    final players = parsePlayersLines(form.playersLines);
+    final staff = parseStaffLines(form.staffLines);
     if (players.length > 20) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -871,9 +643,9 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     }
 
     final payload = {
-      'name': n.text.trim(),
-      'club_colors': clubColors.text.trim(),
-      'logo_url': logoData.value.trim().isEmpty ? null : logoData.value.trim(),
+      'name': form.name,
+      'club_colors': form.clubColors,
+      'logo_url': form.logoUrl,
       'players': players,
       'staff': staff,
     };
@@ -951,13 +723,12 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       return;
     }
 
-    final name = TextEditingController();
+    final nameController = TextEditingController();
     final teamCountController = TextEditingController();
-    final selectedCompetition = ValueNotifier<String>(
-      s(competitions.first['id']),
-    );
+    final selectedCompetition = ValueNotifier<String?>(competitions.first.id);
     final phase = ValueNotifier<String>('group_stage');
     final selectedTeams = ValueNotifier<Set<String>>(<String>{});
+    final teamIdsInGroup = assignedTeamIds();
 
     final ok = await showDialog<bool>(
       context: context,
@@ -970,7 +741,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ValueListenableBuilder<String>(
+                ValueListenableBuilder<String?>(
                   valueListenable: selectedCompetition,
                   builder: (context, value, child) {
                     return DropdownButtonFormField<String>(
@@ -982,19 +753,16 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                       items: competitions
                           .map(
                             (c) => DropdownMenuItem(
-                              value: s(c['id']),
-                              child: Text(
-                                '${s(c['name'])} (${s(c['season'])})',
-                              ),
+                              value: c.id,
+                              child: Text('${c.name} (${c.season})'),
                             ),
                           )
                           .toList(),
                       onChanged: (next) {
                         if (next == null) return;
                         selectedCompetition.value = next;
-                        final assigned = assignedTeamIds();
                         selectedTeams.value = selectedTeams.value
-                            .where((id) => !assigned.contains(id))
+                            .where((id) => !teamIdsInGroup.contains(id))
                             .toSet();
                       },
                     );
@@ -1002,7 +770,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 ),
                 const SizedBox(height: 10),
                 TextField(
-                  controller: name,
+                  controller: nameController,
                   decoration: const InputDecoration(
                     labelText: 'Nom du groupe (ex: Groupe A)',
                     border: OutlineInputBorder(),
@@ -1031,20 +799,17 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                   },
                 ),
                 const SizedBox(height: 10),
-                ValueListenableBuilder<String>(
-                  valueListenable: selectedCompetition,
-                  builder: (context, _, child) {
-                    final assigned = assignedTeamIds();
+                Builder(
+                  builder: (context) {
                     final availableCount = teams
-                        .where((team) => !assigned.contains(s(team['id'])))
+                        .where((team) => !teamIdsInGroup.contains(s(team['id'])))
                         .length;
                     return TextField(
                       controller: teamCountController,
                       keyboardType: TextInputType.number,
                       decoration: InputDecoration(
                         labelText: 'Nombre d equipes dans le groupe',
-                        helperText:
-                            'Maximum $availableCount equipes disponibles',
+                        helperText: 'Maximum $availableCount equipes disponibles',
                         border: const OutlineInputBorder(),
                       ),
                     );
@@ -1057,45 +822,42 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
                 ),
                 const SizedBox(height: 6),
                 ValueListenableBuilder<Set<String>>(
-                    valueListenable: selectedTeams,
-                    builder: (context, selected, child) {
-                      final assigned = assignedTeamIds();
-                      return Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: teams.map((team) {
-                          final id = s(team['id']);
-                          final isSelected = selected.contains(id);
-                          final isAssigned = assigned.contains(id);
-                          return FilterChip(
-                            selected: isSelected,
-                            label: Text(
-                              isAssigned
-                                  ? '${s(team['name'], 'Equipe')} (deja dans un groupe)'
-                                  : s(team['name'], 'Equipe'),
-                            ),
-                            onSelected: isAssigned
-                                ? null
-                                : (checked) {
-                              final next = Set<String>.from(selected);
-                              if (checked) {
-                                next.add(id);
-                              } else {
-                                next.remove(id);
-                              }
-                              selectedTeams.value = next;
-                            },
-                          );
-                        }).toList(),
-                      );
-                    },
-                  ),
-                ValueListenableBuilder<String>(
-                  valueListenable: selectedCompetition,
-                  builder: (context, _, child) {
-                    final assigned = assignedTeamIds();
+                  valueListenable: selectedTeams,
+                  builder: (context, selected, child) {
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: teams.map((team) {
+                        final id = s(team['id']);
+                        final isSelected = selected.contains(id);
+                        final isAssigned = teamIdsInGroup.contains(id);
+                        return FilterChip(
+                          selected: isSelected,
+                          label: Text(
+                            isAssigned
+                                ? '${s(team['name'], 'Equipe')} (deja dans un groupe)'
+                                : s(team['name'], 'Equipe'),
+                          ),
+                          onSelected: isAssigned
+                              ? null
+                              : (checked) {
+                                  final next = Set<String>.from(selected);
+                                  if (checked) {
+                                    next.add(id);
+                                  } else {
+                                    next.remove(id);
+                                  }
+                                  selectedTeams.value = next;
+                                },
+                        );
+                      }).toList(),
+                    );
+                  },
+                ),
+                Builder(
+                  builder: (context) {
                     final availableCount = teams
-                        .where((team) => !assigned.contains(s(team['id'])))
+                        .where((team) => !teamIdsInGroup.contains(s(team['id'])))
                         .length;
                     if (availableCount == 0) {
                       return const Padding(
@@ -1132,80 +894,80 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       ),
     );
 
-    if (ok == true) {
-      final expectedCount = int.tryParse(teamCountController.text.trim());
-      if (name.text.trim().isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Le nom du groupe est obligatoire.')),
-        );
-        return;
-      }
-      if (expectedCount == null || expectedCount < 1) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Le nombre d equipes doit etre superieur a 0.'),
-          ),
-        );
-        return;
-      }
-      final assigned = assignedTeamIds();
-      final availableCount = teams
-          .where((team) => !assigned.contains(s(team['id'])))
-          .length;
-      if (expectedCount > availableCount) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Le nombre d equipes ne peut pas depasser $availableCount equipe(s) disponible(s).',
-            ),
-          ),
-        );
-        return;
-      }
-      final selectedIds = selectedTeams.value.toList();
-      final conflictingIds = selectedIds
-          .where((id) => assigned.contains(id))
-          .toList();
-      if (conflictingIds.isNotEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Une equipe ne peut appartenir qu a un seul groupe.',
-            ),
-          ),
-        );
-        return;
-      }
-      if (selectedIds.length != expectedCount) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Selectionne exactement $expectedCount equipes pour ce groupe.',
-            ),
-          ),
-        );
-        return;
-      }
+    if (ok != true || selectedCompetition.value == null) return;
 
-      await run(
-        () => api.dio.post(
-          '/admin/groups',
-          data: {
-            'competition_id': selectedCompetition.value,
-            'name': name.text.trim(),
-            'phase': phase.value,
-            'team_count': expectedCount,
-            'team_ids': selectedIds,
-          },
-        ),
-        'Groupe ajoute',
+    final expectedCount = int.tryParse(teamCountController.text.trim());
+    if (nameController.text.trim().isEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Le nom du groupe est obligatoire.')),
       );
+      return;
     }
+    if (expectedCount == null || expectedCount < 1) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Le nombre d equipes doit etre superieur a 0.'),
+        ),
+      );
+      return;
+    }
+
+    final availableCount = teams
+        .where((team) => !teamIdsInGroup.contains(s(team['id'])))
+        .length;
+    if (expectedCount > availableCount) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Le nombre d equipes ne peut pas depasser $availableCount equipe(s) disponible(s).',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final selectedIds = selectedTeams.value.toList();
+    final conflictingIds = selectedIds
+        .where((id) => teamIdsInGroup.contains(id))
+        .toList();
+    if (conflictingIds.isNotEmpty) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Une equipe ne peut appartenir qu a un seul groupe.'),
+        ),
+      );
+      return;
+    }
+
+    if (selectedIds.length != expectedCount) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Selectionne exactement $expectedCount equipes pour ce groupe.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    await run(
+      () => api.dio.post(
+        '/admin/groups',
+        data: {
+          'competition_id': selectedCompetition.value,
+          'name': nameController.text.trim(),
+          'phase': phase.value,
+          'team_count': expectedCount,
+          'team_ids': selectedIds,
+        },
+      ),
+      'Groupe ajoute',
+    );
   }
 
   Future<void> addNews() async {
@@ -1216,20 +978,30 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
       title: 'Ajouter actualite',
       controllers: [t, c, i],
       labels: ['Titre', 'Contenu', 'Image URL (jpg/jpeg/png)'],
-      onSave: () => validImage(i.text)
-          ? run(
-              () => api.dio.post(
-                '/admin/news',
-                data: {
-                  'title': t.text.trim(),
-                  'content': c.text.trim(),
-                  'image_url': i.text.trim(),
-                  'is_published': true,
-                },
-              ),
-              'Actualite ajoutee',
-            )
-          : Future.value(),
+      validateBeforeSave: () {
+        if (t.text.trim().isEmpty) {
+          return 'Le titre est obligatoire.';
+        }
+        if (c.text.trim().isEmpty) {
+          return 'Le contenu est obligatoire.';
+        }
+        if (!HomeValidators.validImage(i.text)) {
+          return 'Image invalide. Utilise un lien JPG/JPEG/PNG.';
+        }
+        return null;
+      },
+      onSave: () => run(
+        () => api.dio.post(
+          '/admin/news',
+          data: {
+            'title': t.text.trim(),
+            'content': c.text.trim(),
+            'image_url': i.text.trim(),
+            'is_published': true,
+          },
+        ),
+        'Actualite ajoutee',
+      ),
     );
   }
 
@@ -1247,11 +1019,28 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         'Type: summary/highlight/gallery/interview',
         'Taille MB (<=500)',
       ],
-      onSave: () {
-        final size = int.tryParse(sz.text.trim());
-        if (!validMp4(u.text) || (size != null && size > 500)) {
-          return Future.value();
+      validateBeforeSave: () {
+        if (t.text.trim().isEmpty) {
+          return 'Le titre est obligatoire.';
         }
+        if (!HomeValidators.validMp4(u.text)) {
+          return 'URL video invalide. Le lien doit finir par .mp4';
+        }
+        final sizeText = sz.text.trim();
+        if (sizeText.isNotEmpty) {
+          final size = int.tryParse(sizeText);
+          if (size == null || size < 0) {
+            return 'La taille MB doit etre un nombre positif.';
+          }
+          if (size > 500) {
+            return 'La taille video ne doit pas depasser 500 MB.';
+          }
+        }
+        return null;
+      },
+      onSave: () {
+        final sizeText = sz.text.trim();
+        final size = sizeText.isEmpty ? null : int.tryParse(sizeText);
         return run(
           () => api.dio.post(
             '/admin/videos',
@@ -1280,127 +1069,30 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
   }
 
   Future<void> createAdminAccount() async {
-    final f = TextEditingController();
-    final l = TextEditingController();
-    final e = TextEditingController();
-    final p = TextEditingController();
-    final pwd = TextEditingController();
-    final selectedRole = ValueNotifier<String>(roleSenior);
-
-    final ok = await showDialog<bool>(
+    final form = await showAdminAccountFormDialog(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Nouveau compte admin'),
-        content: SizedBox(
-          width: dialogWidth(580),
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                TextField(
-                  controller: f,
-                  decoration: const InputDecoration(
-                    labelText: 'Prenom',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: l,
-                  decoration: const InputDecoration(
-                    labelText: 'Nom',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: e,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: p,
-                  decoration: const InputDecoration(
-                    labelText: 'Telephone',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: pwd,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Mot de passe',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 10),
-                ValueListenableBuilder<String>(
-                  valueListenable: selectedRole,
-                  builder: (context, value, child) {
-                    return DropdownButtonFormField<String>(
-                      initialValue: value,
-                      decoration: const InputDecoration(
-                        labelText: 'Role',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: roleGeneral,
-                          child: Text('Admin generale'),
-                        ),
-                        DropdownMenuItem(
-                          value: roleSenior,
-                          child: Text('Admin seniors'),
-                        ),
-                        DropdownMenuItem(
-                          value: roleJunior,
-                          child: Text('Admin juniors'),
-                        ),
-                      ],
-                      onChanged: (next) {
-                        if (next != null) {
-                          selectedRole.value = next;
-                        }
-                      },
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Annuler'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Creer'),
-          ),
-        ],
-      ),
+      roleGeneral: roleGeneral,
+      roleSenior: roleSenior,
+      roleJunior: roleJunior,
+      initialRole: roleSenior,
+      width: dialogWidth(580),
     );
+    if (form == null) return;
 
-    if (ok == true) {
-      await run(
-        () => api.dio.post(
-          '/admin/auth/create-account',
-          data: {
-            'first_name': f.text.trim(),
-            'last_name': l.text.trim(),
-            'email': e.text.trim(),
-            'phone': p.text.trim(),
-            'password': pwd.text,
-            'role': selectedRole.value,
-          },
-        ),
-        'Compte admin cree',
-      );
-    }
+    await run(
+      () => api.dio.post(
+        '/admin/auth/create-account',
+        data: {
+          'first_name': form.firstName,
+          'last_name': form.lastName,
+          'email': form.email,
+          'phone': form.phone,
+          'password': form.password,
+          'role': form.role,
+        },
+      ),
+      'Compte admin cree',
+    );
   }
 
   List<int> visibleTabs() {
@@ -1467,7 +1159,7 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
           competitions: competitions,
           onAdd: addCompetition,
           onDelete: (e) => run(
-            () => api.dio.delete('/admin/competitions/${s(e['id'])}'),
+            () => api.dio.delete('/admin/competitions/${e.id}'),
             'Competition supprimee',
           ),
           green: green,
@@ -1596,11 +1288,13 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
         )
         .toList();
     final currentTab = tabs[safeSelectedRailIndex];
+    const lazyTabs = {1, 2, 3, 5, 6, 7, 10};
     return AdminHomeLayout(
       green: green,
       currentTitle: labels[currentTab],
       destinations: railDestinations,
       selectedRailIndex: safeSelectedRailIndex,
+      useOuterScroll: !lazyTabs.contains(currentTab),
       saving: saving,
       loading: loading,
       error: error,
@@ -1611,3 +1305,4 @@ class _AdminHomeScreenState extends State<AdminHomeScreen> {
     );
   }
 }
+
