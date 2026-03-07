@@ -10,6 +10,12 @@ flutter --version
 flutter config --enable-web
 flutter pub get
 
+if [ -n "${VERCEL:-}" ] && [ -z "${API_BASE_URL:-}" ]; then
+  echo "ERROR: API_BASE_URL is required for Vercel builds."
+  echo "Set it in Project Settings -> Environment Variables."
+  exit 1
+fi
+
 if [ -n "${API_BASE_URL:-}" ]; then
   flutter build web --release --dart-define=API_BASE_URL="${API_BASE_URL}"
 else
